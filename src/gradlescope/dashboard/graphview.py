@@ -194,15 +194,18 @@ _GRAPH_JS = r"""
       ctx.stroke(); }
     var neigh=null; if(hl>=0){ neigh=new Set(); for(var oo=0;oo<outAdj[hl].length;oo++)neigh.add(outAdj[hl][oo]); for(var ii=0;ii<inAdj[hl].length;ii++)neigh.add(inAdj[hl][ii]); }
     var idxs=visIndices();
-    for(var k=0;k<idxs.length;k++){ var i=idxs[k],n=nodes[i]; var on=tagged(n);
-      ctx.beginPath(); ctx.arc(wx(n),wy(n),nodeRadius(n)*(on&&ht?1.4:1),0,6.2832);
+    function onScreen(X,Y){ return X>=-30&&X<=w+30&&Y>=-30&&Y<=h+30; }
+    for(var k=0;k<idxs.length;k++){ var i=idxs[k],n=nodes[i]; var X=wx(n),Y=wy(n); if(!onScreen(X,Y))continue; var on=tagged(n);
+      ctx.beginPath(); ctx.arc(X,Y,nodeRadius(n)*(on&&ht?1.4:1),0,6.2832);
       ctx.fillStyle = (ht&&on)?'#f59e0b':nodeColor(n);
       ctx.globalAlpha = (ht&&!on)?0.12 : ((neigh&&i!==hl&&!neigh.has(i))?0.35:1); ctx.fill(); ctx.globalAlpha=1; }
-    // labels on demand
-    var lab={}; if(idxs.length<=60||view.scale>1.1){ for(var k2=0;k2<idxs.length;k2++)lab[idxs[k2]]=1; }
+    // labels: hovered neighbourhood always; otherwise only on-screen nodes, capped, to avoid clutter/overdraw
+    var lab={}, cap=250;
     if(hl>=0){ lab[hl]=1; for(var o2=0;o2<outAdj[hl].length;o2++)lab[outAdj[hl][o2]]=1; for(var p2=0;p2<inAdj[hl].length;p2++)lab[inAdj[hl][p2]]=1; }
+    if(idxs.length<=80){ for(var k2=0;k2<idxs.length;k2++)lab[idxs[k2]]=1; }
+    else if(view.scale>1.1){ var cnt=0; for(var k3=0;k3<idxs.length&&cnt<cap;k3++){ var nn=nodes[idxs[k3]]; if(onScreen(wx(nn),wy(nn))){ lab[idxs[k3]]=1; cnt++; } } }
     ctx.fillStyle='#e6ebf5'; ctx.font='11px -apple-system,Segoe UI,Roboto,sans-serif';
-    for(var key in lab){ var i3=+key; if(!vis(i3))continue; var n3=nodes[i3]; ctx.fillText(n3.label, wx(n3)+nodeRadius(n3)+3, wy(n3)+3); }
+    for(var key in lab){ var i3=+key; if(!vis(i3))continue; var n3=nodes[i3]; var LX=wx(n3),LY=wy(n3); if(!onScreen(LX,LY))continue; ctx.fillText(n3.label, LX+nodeRadius(n3)+3, LY+3); }
   }
   function nearest(mx,my){ var best=-1,bd=1e9,idxs=visIndices();
     for(var k=0;k<idxs.length;k++){ var i=idxs[k],dx=wx(nodes[i])-mx,dy=wy(nodes[i])-my,d=dx*dx+dy*dy; if(d<bd){bd=d;best=i;} } return bd<=225?best:-1; }

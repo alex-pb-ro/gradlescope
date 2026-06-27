@@ -293,7 +293,7 @@ def parse_wrapper_version(text: str) -> Optional[str]:
 _TOOLCHAIN_RE = re.compile(r"languageVersion\s*(?:=|\.set\()\s*JavaLanguageVersion\.of\(\s*(\d+)\s*\)")
 _KOTLIN_TOOLCHAIN_RE = re.compile(r"jvmToolchain\(\s*(?:JavaLanguageVersion\.of\(\s*)?(\d+)")
 _KOTLIN_JVMTARGET_RE = re.compile(
-    r"jvmTarget\s*(?:=|\.set\()\s*(?:JvmTarget\.JVM_)?['\"]?(\d+(?:\.\d+)?)['\"]?"
+    r"jvmTarget\s*(?:=|\.set\()\s*(?:JvmTarget\.JVM_)?['\"]?(\d+(?:[._]\d+)?)['\"]?"
 )
 _SOURCE_COMPAT_RE = re.compile(r"sourceCompatibility\s*=?\s*(.+)")
 _TARGET_COMPAT_RE = re.compile(r"targetCompatibility\s*=?\s*(.+)")
@@ -301,14 +301,17 @@ _JAVA_VERSION_TOKEN_RE = re.compile(r"VERSION_(\d+)(?:_(\d+))?|['\"](\d+(?:\.\d+
 
 
 def _norm_java_version(raw: Optional[str]) -> Optional[str]:
-    """Normalize a Java version token to a major number string ("1.8"->"8")."""
+    """Normalize a Java version token to a major-version string.
+
+    Examples: "1.8"->"8", "VERSION_1_8"->"8", "VERSION_17"->"17", "11.0"->"11",
+    "JVM_1_8" (passed as "1_8")->"8".
+    """
     if not raw:
         return None
     s = raw.strip()
     m = _JAVA_VERSION_TOKEN_RE.search(s)
     if not m:
-        # bare number like "17" or "1.8"
-        bare = re.search(r"(\d+(?:\.\d+)?)", s)
+        bare = re.search(r"(\d+(?:[._]\d+)?)", s)
         if not bare:
             return None
         val = bare.group(1)
@@ -317,9 +320,11 @@ def _norm_java_version(raw: Optional[str]) -> Optional[str]:
         val = f"{major}.{minor}" if minor else major
     else:
         val = m.group(3) or m.group(4)
-    # "1.8" -> "8"
-    if val and val.startswith("1.") and val[2:].isdigit():
-        return val[2:]
+    val = val.replace("_", ".")
+    if "." in val:
+        head, tail = val.split(".", 1)
+        # Old "1.x" form -> x ; modern "11.0"-style -> major only.
+        return tail if head == "1" else head
     return val
 
 

@@ -133,6 +133,9 @@ class TestSite:
         for name in ("index.html", "graph.html", "findings.html"):
             assert 'src="prompts.js"' in pages[name]
             assert "gsCopyPrompt(" in pages[name]
+        # Prompt buttons use a data attribute (no inline JS-string interpolation).
+        assert "data-prompt-key" in pages["findings.html"]
+        assert "onclick=\"gsCopyPrompt" not in pages["findings.html"]
 
     def test_status_bar_on_every_page(self):
         pages = site.build_pages(_result())

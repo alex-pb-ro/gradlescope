@@ -15,7 +15,7 @@ from gradlescope.report import ai, json_report, markdown_report
 from gradlescope.result import build_result
 from gradlescope.scan import scan_repo
 from gradlescope.server.app import serve as _serve
-from gradlescope.workspace import default_site_dir
+from gradlescope.workspace import default_site_dir, repo_workspace
 
 
 def _now() -> str:
@@ -91,13 +91,18 @@ def cmd_dashboard(args, out=None) -> int:
     out = out or sys.stdout
     _, result = _load_result(args)
     out_dir = args.out or default_site_dir(args.root)
+    # Trend history lives in the per-repo workspace so `dashboard` and `serve`
+    # share it (unless an explicit --out was given, then keep it self-contained).
+    ws = args.out or repo_workspace(args.root)
     history = []
-    history_path = os.path.join(out_dir, "history.json")
+    history_path = os.path.join(ws, "history.json")
     if os.path.isfile(history_path):
         try:
             with open(history_path, "r", encoding="utf-8") as fh:
                 history = json.load(fh)
         except (OSError, ValueError):  # pragma: no cover - defensive
+            history = []
+        if not isinstance(history, list):  # tolerate a malformed history file
             history = []
     render_site(result, out_dir, history=history, live=args.live)
     # Record this run in history for trend continuity.
@@ -116,7 +121,7 @@ def cmd_dashboard(args, out=None) -> int:
 
 def cmd_serve(args, out=None) -> int:
     out = out or sys.stdout
-    out_dir = args.out or default_site_dir(args.root)
+    out_dir = args.out or repo_workspace(args.root)
     print(f"Starting gradlescope server for {os.path.abspath(args.root)}", file=out)
     print(f"Workspace: {out_dir}", file=out)
     _serve(root=args.root, host=args.host, port=args.port, config=_load_config(args.config),

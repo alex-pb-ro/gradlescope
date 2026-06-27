@@ -176,6 +176,32 @@ class TestApi:
         d = json.loads(srv.handle("GET", f"/api/jobs/{job_id}", b"")[2])
         assert d["status"] == "cancelled"
 
+    def test_cancel_before_process_spawns_is_honored(self, tmp_path):
+        import threading
+
+        can_start, terminated = threading.Event(), threading.Event()
+
+        class FakeProc:
+            def terminate(self):
+                terminated.set()
+
+        def runner(argv, cwd, emit, on_start=None):
+            can_start.wait(2)  # don't spawn until the test has requested cancel
+            on_start(FakeProc())
+            return -15
+
+        srv = _server(tmp_path, job_runner=runner)
+        _, _, body = srv.handle("POST", "/api/run", json.dumps({"task": "build"}).encode())
+        job_id = json.loads(body)["job_id"]
+        # cancel while the process has not spawned yet
+        status, _, r = srv.handle("POST", f"/api/jobs/{job_id}/cancel", b"")
+        assert status == 200 and json.loads(r)["ok"] is True  # running -> True even w/o proc
+        can_start.set()
+        srv.jobs.wait(job_id)
+        assert terminated.is_set()  # on_start honored the pending cancel
+        d = json.loads(srv.handle("GET", f"/api/jobs/{job_id}", b"")[2])
+        assert d["status"] == "cancelled"
+
     def test_open_log_endpoint(self, tmp_path, monkeypatch):
         import gradlescope.server.app as app_mod
 
@@ -219,6 +245,15 @@ class TestJobManager:
         job = jm.start("build --info")
         jm.wait(job.id)
         assert seen["argv"][-2:] == ["build", "--info"]
+
+    def test_list_orders_by_id_for_same_timestamp(self, tmp_path):
+        jm = JobManager(str(tmp_path), run_fn=_emit_runner(["x"]), now_fn=lambda: "same-second")
+        a = jm.start("build")
+        jm.wait(a.id)
+        b = jm.start("test")
+        jm.wait(b.id)
+        ids = [j["id"] for j in jm.list()]
+        assert ids == sorted(ids, reverse=True)  # newest (highest id) first despite equal timestamps
 
     def test_persistence_and_reload(self, tmp_path):
         out = str(tmp_path / "out")

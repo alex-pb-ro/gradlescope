@@ -30,6 +30,18 @@ class TestParseJvm:
         v = parser.parse_jvm_versions('kotlinOptions { jvmTarget = "1.8" }')
         assert v["kotlin_jvm"] == "8"
 
+    def test_kotlin_jvmtarget_enum_legacy(self):
+        v = parser.parse_jvm_versions("compilerOptions { jvmTarget.set(JvmTarget.JVM_1_8) }")
+        assert v["kotlin_jvm"] == "8"
+
+    def test_kotlin_jvmtarget_enum_modern(self):
+        v = parser.parse_jvm_versions("compilerOptions { jvmTarget = JvmTarget.JVM_17 }")
+        assert v["kotlin_jvm"] == "17"
+
+    def test_version_with_minor_normalized_to_major(self):
+        assert parser.parse_jvm_versions("sourceCompatibility = '11.0'")["source_compat"] == "11"
+        assert parser.parse_jvm_versions("sourceCompatibility = JavaVersion.VERSION_11")["source_compat"] == "11"
+
     def test_none_when_absent(self):
         v = parser.parse_jvm_versions("plugins { id 'java' }")
         assert all(val is None for val in v.values())

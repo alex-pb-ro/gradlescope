@@ -59,7 +59,9 @@ def _zone_pill(zone: str) -> str:
 
 
 def _prompt_btn(key: str) -> str:
-    return f"<button class='btn-mini' onclick=\"gsCopyPrompt('{esc(key)}')\">Prompt</button>"
+    # Key goes into an HTML attribute (correctly escaped by esc); a delegated
+    # listener in BASE_JS reads data-prompt-key — avoids inline-JS escaping issues.
+    return f"<button class='btn-mini gs-prompt' data-prompt-key=\"{esc(key)}\">Prompt</button>"
 
 
 _PROMPTS_TAG = '<script src="prompts.js"></script>'
@@ -481,7 +483,8 @@ _PROCESSES_JS = r"""
       (d.jobs||[]).forEach(function(j){ var box=ensureJob(j);
         fetch('/api/jobs/'+j.id+'?offset='+(offsets[j.id]||0)).then(function(r){return r.json();}).then(function(jd){
           if(jd&&jd.lines&&jd.lines.length){ lineStore[j.id]=(lineStore[j.id]||[]).concat(jd.lines); offsets[j.id]=jd.next_offset;
-            var pre=box.querySelector('pre'); var stick=atBottom(pre); applyFilter(box,j.id); if(stick) pre.scrollTop=pre.scrollHeight; }
+            var pre=box.querySelector('pre'); var stick=atBottom(pre); var top=pre.scrollTop; applyFilter(box,j.id);
+            pre.scrollTop = stick ? pre.scrollHeight : top; }
         });
       });
     }).catch(function(){ conn.textContent='not connected — start `gradlescope serve`'; });

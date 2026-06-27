@@ -29,6 +29,34 @@ def test_default_site_dir_under_home(monkeypatch, tmp_path):
     assert d.endswith("site")
 
 
+def test_serve_uses_repo_workspace_root(monkeypatch, tmp_path):
+    monkeypatch.setenv("GRADLESCOPE_HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    _write(str(repo / "settings.gradle"), "include ':a'\n")
+    _write(str(repo / "a" / "build.gradle"), "plugins { id 'java' }\n")
+    captured = {}
+    monkeypatch.setattr(cli, "_serve", lambda **kw: captured.update(kw))
+    cli.main(["serve", "--root", str(repo)])
+    assert captured["output_dir"] == workspace.repo_workspace(str(repo))
+    assert "repos" in captured["output_dir"] and not captured["output_dir"].endswith("site")
+
+
+def test_dashboard_tolerates_nonlist_history(monkeypatch, tmp_path):
+    monkeypatch.setenv("GRADLESCOPE_HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    _write(str(repo / "settings.gradle"), "include ':a'\n")
+    _write(str(repo / "a" / "build.gradle"), "plugins { id 'java' }\n")
+    ws = workspace.repo_workspace(str(repo))
+    os.makedirs(ws, exist_ok=True)
+    with open(os.path.join(ws, "history.json"), "w") as fh:
+        fh.write('{"not": "a list"}')
+    assert cli.main(["dashboard", "--root", str(repo)]) == 0
+    import json
+
+    hist = json.load(open(os.path.join(ws, "history.json")))
+    assert isinstance(hist, list) and len(hist) == 1
+
+
 def test_dashboard_writes_to_home_not_repo(monkeypatch, tmp_path):
     home = tmp_path / "home"
     monkeypatch.setenv("GRADLESCOPE_HOME", str(home))

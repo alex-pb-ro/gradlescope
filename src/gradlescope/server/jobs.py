@@ -102,7 +102,8 @@ class JobManager:
 
     def list(self) -> List[Dict]:
         with self._lock:
-            jobs = sorted(self.jobs.values(), key=lambda j: j.started_at, reverse=True)
+            # id is a zero-padded monotonic sequence — a reliable recency tiebreak.
+            jobs = sorted(self.jobs.values(), key=lambda j: (j.started_at, j.id), reverse=True)
             return [j.meta() for j in jobs]
 
     def get(self, job_id: str, offset: int = 0) -> Optional[Dict]:
@@ -120,7 +121,8 @@ class JobManager:
             job.thread.join(timeout)
 
     def cancel(self, job_id: str) -> bool:
-        """Terminate a running job's process. Returns True if a kill was issued."""
+        """Request cancellation of a running job. Returns True if the job was
+        running (the process is terminated now, or by on_start once it spawns)."""
         with self._lock:
             job = self.jobs.get(job_id)
             if job is None or job.status != "running":
@@ -131,9 +133,8 @@ class JobManager:
             try:
                 proc.terminate()
             except Exception:  # pragma: no cover - process already gone
-                return False
-            return True
-        return False
+                pass
+        return True
 
     def log_path(self, job_id: str) -> Optional[str]:
         d = self._jobs_dir()
@@ -152,6 +153,12 @@ class JobManager:
         def on_start(proc) -> None:
             with self._lock:
                 job.proc = proc
+                already_cancelled = job.cancelled
+            if already_cancelled:  # cancel arrived before the process existed
+                try:
+                    proc.terminate()
+                except Exception:  # pragma: no cover - process already gone
+                    pass
 
         try:
             rc = self.run_fn(argv, self.root, emit, on_start)
@@ -270,7 +277,8 @@ def _read_mem_pct() -> Optional[float]:
             active = int(pages.get("Pages active", "0"))
             inactive = int(pages.get("Pages inactive", "0"))
             wired = int(pages.get("Pages wired down", "0"))
-            used = active + wired
+            compressed = int(pages.get("Pages occupied by compressor", "0"))
+            used = active + wired + compressed
             total = used + inactive + free + spec
             return round(used / total * 100, 1) if total else None
     except Exception:

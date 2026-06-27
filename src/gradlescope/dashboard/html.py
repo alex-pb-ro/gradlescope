@@ -131,6 +131,7 @@ function gsCopy(id){var el=document.getElementById(id);if(!el)return;navigator.c
 window.GS_PROMPTS = window.GS_PROMPTS || {};
 function gsCopyText(t){navigator.clipboard.writeText(t).then(function(){gsToast('Copied to clipboard');});}
 function gsCopyPrompt(k){var t=(window.GS_PROMPTS||{})[k]; if(t){gsCopyText(t);} else {gsToast('No prompt available');}}
+document.addEventListener('click',function(e){var b=e.target&&e.target.closest&&e.target.closest('.gs-prompt');if(b){gsCopyPrompt(b.getAttribute('data-prompt-key'));}});
 """
 
 STATUSBAR_JS = """
