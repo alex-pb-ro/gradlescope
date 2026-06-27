@@ -26,3 +26,6 @@ htmlcov/
 .idea/
 .vscode/
 .DS_Store
+
+# Playwright MCP screenshot output
+.playwright-mcp/

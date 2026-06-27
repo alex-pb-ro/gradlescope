@@ -37,6 +37,7 @@ class AnalysisResult:
     architecture: Dict = field(default_factory=dict)
     sdp_violations: List = field(default_factory=list)
     plugins: Dict = field(default_factory=dict)
+    modules_info: Dict = field(default_factory=dict)  # path -> {languages, jvm, compat, runs_compat}
     graph_obj: object = None  # the DependencyGraph (not serialized)
 
     def to_dict(self) -> Dict:
@@ -60,12 +61,30 @@ class AnalysisResult:
         }
 
 
+_JVM_LANGS = {"java", "groovy", "scala"}
+
+
+def _lang_version(module, lang: str):
+    if lang == "kotlin":
+        return module.kotlin_jvm or module.jvm_version
+    if lang in _JVM_LANGS:
+        return module.jvm_version
+    return None
+
+
 def _summarize(repo: Repo) -> Dict:
     language_counts: Counter = Counter()
+    language_versions: Counter = Counter()  # "java 17" -> module count
     plugin_counts: Counter = Counter()
+    compat_modules = 0
     for module in repo.modules:
+        if module.runs_compat:
+            compat_modules += 1
         for lang in module.languages:
             language_counts[lang] += 1
+            ver = _lang_version(module, lang)
+            label = f"{lang} {ver}" if (ver and lang in _JVM_LANGS | {"kotlin"}) else lang
+            language_versions[label] += 1
         for plugin in module.plugins:
             plugin_counts[plugin.id] += 1
     return {
@@ -73,6 +92,8 @@ def _summarize(repo: Repo) -> Dict:
         "gradle_version": repo.gradle_version,
         "has_version_catalog": bool(repo.version_catalogs),
         "languages": dict(sorted(language_counts.items())),
+        "language_versions": dict(sorted(language_versions.items())),
+        "compat_modules": compat_modules,
         "plugin_usage": dict(plugin_counts.most_common()),
     }
 
@@ -103,5 +124,14 @@ def build_result(
         architecture=architecture_summary(metrics),
         sdp_violations=violations,
         plugins=plugin_overview(repo),
+        modules_info={
+            m.path: {
+                "languages": sorted(m.languages),
+                "jvm": m.jvm_version,
+                "compat": m.compat_target,
+                "runs_compat": m.runs_compat,
+            }
+            for m in repo.modules
+        },
         graph_obj=graph,
     )

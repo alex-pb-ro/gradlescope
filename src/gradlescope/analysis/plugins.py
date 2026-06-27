@@ -85,9 +85,10 @@ def plugin_overview(repo: Repo) -> Dict:
     for module in repo.modules:
         for plugin in module.plugins:
             entry = usage.setdefault(
-                plugin.id, {"id": plugin.id, "count": 0, "applied": 0, "versions": set()}
+                plugin.id, {"id": plugin.id, "count": 0, "applied": 0, "versions": set(), "modules": []}
             )
             entry["count"] += 1
+            entry["modules"].append(module.path)
             if plugin.applied:
                 entry["applied"] += 1
             if plugin.version:
@@ -107,6 +108,7 @@ def plugin_overview(repo: Repo) -> Dict:
                 "applied": entry["applied"],
                 "versions": versions,
                 "version_conflict": len(versions) > 1,
+                "modules": sorted(entry["modules"]),
             }
         )
     plugins.sort(key=lambda p: (-p["count"], p["id"]))

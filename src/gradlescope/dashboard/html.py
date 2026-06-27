@@ -7,8 +7,13 @@ re-scans and Gradle runs from the browser.
 """
 from __future__ import annotations
 
+import json as _jsonlib
 from html import escape
 from typing import Iterable, List, Sequence, Tuple
+
+
+def _json(obj) -> str:
+    return _jsonlib.dumps(obj).replace("<", "\\u003c")
 
 NAV: List[Tuple[str, str]] = [
     ("index.html", "Overview"),
@@ -95,6 +100,26 @@ footer{padding:24px;text-align:center;color:var(--muted);font-size:13px}
 .job.ok{border-left:3px solid var(--A)}
 .job.failed{border-left:3px solid var(--F)}
 .dot-status{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px}
+.gv-canvas-wrap{position:relative}
+.gv-overlay{position:absolute;top:10px;right:10px;display:flex;gap:6px;z-index:5}
+.gv-hint{padding:7px 12px;font-size:12px;border-top:1px solid var(--border)}
+body{padding-bottom:46px}
+#statusbar{position:fixed;left:0;right:0;bottom:0;height:38px;background:var(--panel);border-top:1px solid var(--border);display:flex;align-items:center;gap:18px;padding:0 16px;font-size:13px;z-index:50}
+#statusbar .sb-item{display:inline-flex;gap:6px;align-items:center;color:var(--muted)}
+#statusbar .sb-item b{color:var(--text)}
+#statusbar .sb-proc{margin-left:auto;cursor:pointer;display:inline-flex;gap:7px;align-items:center;padding:4px 10px;border-radius:8px}
+#statusbar .sb-proc:hover{background:var(--panel2)}
+.sb-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+#sb-pop{position:fixed;right:12px;bottom:46px;width:380px;max-height:55vh;overflow:auto;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px;display:none;z-index:60}
+#sb-pop.show{display:block}
+.sb-job{border-bottom:1px solid var(--border);padding:7px 0;font-size:12px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.plugin-modules{display:none;padding:8px 0 4px}
+.plugin-modules.show{display:block}
+.expander{cursor:pointer;user-select:none}
+.modlist{max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px;margin-top:6px;columns:3;column-gap:14px;font-size:12px}
+.modlist code{display:block;break-inside:avoid}
+.glossary dt{font-weight:700;margin-top:10px}
+.glossary dd{margin:2px 0 6px;color:var(--muted)}
 """
 
 BASE_JS = """
@@ -106,6 +131,33 @@ function gsCopy(id){var el=document.getElementById(id);if(!el)return;navigator.c
 window.GS_PROMPTS = window.GS_PROMPTS || {};
 function gsCopyText(t){navigator.clipboard.writeText(t).then(function(){gsToast('Copied to clipboard');});}
 function gsCopyPrompt(k){var t=(window.GS_PROMPTS||{})[k]; if(t){gsCopyText(t);} else {gsToast('No prompt available');}}
+"""
+
+STATUSBAR_JS = """
+(function(){
+  var S=window.GS_STATUS||{}, live=__LIVE__;
+  function el(id){return document.getElementById(id);}
+  function esc(t){var d=document.createElement('div');d.textContent=t==null?'':t;return d.innerHTML;}
+  var proc=el('sb-proc'), pop=el('sb-pop');
+  function renderPop(jobs){
+    var h='<div style="display:flex;justify-content:space-between;align-items:center"><b>Jobs</b><a href="processes.html">Open Processes →</a></div>';
+    if(!jobs||!jobs.length){ h+='<p class="muted">No jobs yet.</p>'; }
+    (jobs||[]).slice(0,15).forEach(function(j){ var c={running:'#4f7cff',ok:'#16a34a',failed:'#dc2626',cancelled:'#d97706'}[j.status]||'#64748b';
+      h+='<div class="sb-job"><span class="sb-dot" style="background:'+c+'"></span><code>gradle '+esc(j.task)+'</code><span class="muted">'+esc(j.status)+'</span>'+
+         (j.status==='running'?(' <button class="btn-mini" onclick="gsCancel(\\''+j.id+'\\')">Stop</button>'):'')+'</div>'; });
+    pop.innerHTML=h;
+  }
+  window.gsCancel=function(id){ fetch('/api/jobs/'+id+'/cancel',{method:'POST'}).then(function(){gsToast('Cancelling job '+id);}); };
+  if(proc){ proc.addEventListener('click',function(){ if(pop) pop.classList.toggle('show'); }); }
+  function poll(){
+    if(!live){ if(proc) proc.innerHTML='<span class="sb-dot" style="background:#64748b"></span> run `gradlescope serve` for live'; return; }
+    fetch('/api/jobs').then(function(r){return r.json();}).then(function(d){ var running=(d.jobs||[]).filter(function(j){return j.status==='running';});
+      if(proc) proc.innerHTML = running.length? ('<span class="sb-dot" style="background:#4f7cff"></span> '+running.length+' running') : ('<span class="sb-dot" style="background:#16a34a"></span> idle');
+      renderPop(d.jobs); }).catch(function(){ if(proc) proc.innerHTML='<span class="sb-dot" style="background:#64748b"></span> offline'; });
+    fetch('/api/status').then(function(r){return r.json();}).then(function(d){ if(el('sb-find')) el('sb-find').textContent=d.total_findings; }).catch(function(){});
+  }
+  poll(); if(live) setInterval(poll, 3000);
+})();
 """
 
 LIVE_JS = """
@@ -168,12 +220,29 @@ def _toolbar(live: bool) -> str:
     )
 
 
-def page(title: str, body: str, active: str, live: bool = False, generated_at: str = "") -> str:
+def _status_bar_html(status: dict) -> str:
+    if not status:
+        return ""
+    return (
+        '<div id="statusbar">'
+        f'<span class="sb-item">Score <b id="sb-score">{esc(status.get("score"))}</b> {grade_badge(status.get("grade", "?"))}</span>'
+        f'<span class="sb-item">Modules <b id="sb-mods">{esc(status.get("modules"))}</b></span>'
+        f'<span class="sb-item">Findings <b id="sb-find">{esc(status.get("findings"))}</b></span>'
+        '<span class="sb-proc" id="sb-proc" title="Processes — click for details">…</span>'
+        "</div><div id=\"sb-pop\"></div>"
+    )
+
+
+def page(title: str, body: str, active: str, live: bool = False, generated_at: str = "", status: dict = None) -> str:
     nav = "".join(
         f'<a href="{href}" class="{"active" if href == active else ""}">{esc(label)}</a>'
         for href, label in NAV
     )
     scripts = BASE_JS + (LIVE_JS if live else "")
+    bar = ""
+    if status is not None:
+        scripts += "window.GS_STATUS=" + _json(status) + ";" + STATUSBAR_JS.replace("__LIVE__", "true" if live else "false")
+        bar = _status_bar_html(status)
     gen = f'<span class="muted">· {esc(generated_at)}</span>' if generated_at else ""
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/>
@@ -190,6 +259,7 @@ def page(title: str, body: str, active: str, live: bool = False, generated_at: s
 <main>{body}</main>
 <footer>Generated by gradlescope {gen} · build-tool-agnostic Gradle health</footer>
 <div id="toast"></div>
+{bar}
 <script>{scripts}</script>
 </body></html>
 """

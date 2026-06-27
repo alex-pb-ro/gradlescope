@@ -118,9 +118,17 @@ class TestServerPersistenceAndBadBody:
     def test_run_with_non_json_body_is_rejected(self, tmp_path):
         root = str(tmp_path / "repo")
         self._make_repo(root)
-        srv = DashboardServer(root=root, job_runner=lambda a, c, e: 0, now_fn=lambda: "t")
+        srv = DashboardServer(root=root, job_runner=lambda a, c, e, o=None: 0, now_fn=lambda: "t")
         status, _, _ = srv.handle("POST", "/api/run", b"not-json")
         assert status == 400
+
+
+class TestSystemStats:
+    def test_returns_cpu_count(self):
+        from gradlescope.server.jobs import system_stats
+
+        s = system_stats()
+        assert "cpu_count" in s and "load_avg" in s and "mem_pct" in s
 
 
 def test_markdown_report_no_findings_branch():

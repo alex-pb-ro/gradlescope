@@ -124,9 +124,11 @@ def _load_module(
     build_file = _build_file_for(directory)
     plugins = []
     dependencies = []
+    jvm = {"jvm_toolchain": None, "kotlin_jvm": None, "source_compat": None, "target_compat": None}
     if build_file is not None:
         plugins = parser.parse_plugins(build_file.text, catalog_plugins=catalog_plugins)
         dependencies = parser.parse_dependencies(build_file.text)
+        jvm = parser.parse_jvm_versions(build_file.text)
     languages, type_count, abstract_count = scan_sources(directory)
     return Module(
         path=gradle_path,
@@ -137,6 +139,10 @@ def _load_module(
         languages=languages,
         type_count=type_count,
         abstract_type_count=abstract_count,
+        jvm_toolchain=jvm["jvm_toolchain"],
+        kotlin_jvm=jvm["kotlin_jvm"],
+        source_compat=jvm["source_compat"],
+        target_compat=jvm["target_compat"],
     )
 
 

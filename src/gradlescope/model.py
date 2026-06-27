@@ -135,6 +135,10 @@ class Module:
     properties: Dict[str, str] = field(default_factory=dict)
     type_count: int = 0
     abstract_type_count: int = 0
+    jvm_toolchain: Optional[str] = None
+    kotlin_jvm: Optional[str] = None
+    source_compat: Optional[str] = None
+    target_compat: Optional[str] = None
 
     @property
     def name(self) -> str:
@@ -148,6 +152,29 @@ class Module:
     @property
     def project_dependencies(self) -> List[Dependency]:
         return [d for d in self.dependencies if d.is_project]
+
+    @property
+    def compat_target(self) -> Optional[str]:
+        """The bytecode/compatibility target, if declared (target wins over source)."""
+        return self.target_compat or self.source_compat
+
+    @property
+    def jvm_version(self) -> Optional[str]:
+        """Best single Java/JVM version for display."""
+        return self.jvm_toolchain or self.kotlin_jvm or self.compat_target
+
+    @property
+    def runs_compat(self) -> bool:
+        """True if the module targets an older Java than its toolchain (compat mode)."""
+        compat = self.compat_target
+        if not compat:
+            return False
+        if self.jvm_toolchain is None:
+            return True  # compat set without a toolchain -> relies on machine JDK
+        try:
+            return int(compat) < int(self.jvm_toolchain)
+        except ValueError:  # pragma: no cover - non-numeric versions
+            return False
 
 
 @dataclass

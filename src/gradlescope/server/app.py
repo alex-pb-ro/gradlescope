@@ -22,7 +22,13 @@ from urllib.parse import parse_qs, urlparse
 from gradlescope.dashboard.site import build_pages
 from gradlescope.result import build_result
 from gradlescope.scan import scan_repo
-from gradlescope.server.jobs import JobManager, StreamRunner, gradle_processes
+from gradlescope.server.jobs import (
+    JobManager,
+    StreamRunner,
+    gradle_processes,
+    reveal_path,
+    system_stats,
+)
 
 _TASK_RE = re.compile(r"^[A-Za-z0-9 :._\-]+$")
 
@@ -147,7 +153,8 @@ class DashboardServer:
         name = "index.html" if path in ("/", "") else path.lstrip("/")
         with self._lock:
             if name in self.pages:
-                return 200, "text/html; charset=utf-8", self.pages[name]
+                ctype = "application/javascript; charset=utf-8" if name.endswith(".js") else "text/html; charset=utf-8"
+                return 200, ctype, self.pages[name]
             if name == "data.json":
                 return self._json(self.result.to_dict())
         if name == "api/status":
@@ -164,6 +171,8 @@ class DashboardServer:
             return self._json(detail) if detail else self._not_found()
         if name == "api/processes":
             return self._json({"processes": gradle_processes(self.ps_fn), "jobs": self.jobs.list()})
+        if name == "api/system":
+            return self._json(system_stats())
         return self._not_found()
 
     def _handle_post(self, path: str, body: bytes) -> Tuple[int, str, str]:
@@ -175,6 +184,17 @@ class DashboardServer:
                 return self._json({"ok": False, "message": "invalid task"}, status=400)
             job = self.run_gradle(task)
             return self._json({"ok": True, "job_id": job.id, "message": f"Started job {job.id}: gradle {task}"})
+        if path.startswith("/api/jobs/") and path.endswith("/cancel"):
+            job_id = path[len("/api/jobs/"):-len("/cancel")]
+            ok = self.jobs.cancel(job_id)
+            return self._json({"ok": ok, "message": "cancelling" if ok else "not running"})
+        if path.startswith("/api/jobs/") and path.endswith("/open"):
+            job_id = path[len("/api/jobs/"):-len("/open")]
+            log = self.jobs.log_path(job_id)
+            if not log:
+                return self._not_found()
+            reveal_path(log)
+            return self._json({"ok": True, "path": log})
         return self._not_found()
 
     @staticmethod
@@ -248,7 +268,10 @@ def serve(  # pragma: no cover - blocking socket loop, exercised via build_serve
     output_dir: Optional[str] = None,
 ) -> None:
     httpd = build_server(root, host, port, config=config, output_dir=output_dir)
-    print(f"gradlescope dashboard on http://{host}:{port}  (Ctrl+C to stop)")
+    url = f"http://{host}:{port}"
+    # OSC 8 hyperlink so the URL is clickable in modern terminals.
+    link = f"\033]8;;{url}\033\\{url}\033]8;;\033\\"
+    print(f"gradlescope dashboard on {link}  (Ctrl+C to stop)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

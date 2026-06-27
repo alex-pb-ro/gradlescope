@@ -141,10 +141,25 @@ score directly de-risks a future Bazel (or other) migration. See the
 - **Runbooks** — full remediation guides, rendered inline.
 - **AI** — context pack and copy-ready prompts.
 
+The **Graph** page offers a flow layout and a numbered **abstraction-layers**
+layout, pattern **highlights** (cycles, deep chains, hubs, isolated,
+single-consumer, SDP), Ctrl/⌘+scroll zoom, and overlay zoom/fit/reset controls.
+A global **status bar** on every page shows score/modules/findings and live
+process state (click for running jobs + a Stop control).
+
 When served with `gradlescope serve`, the toolbar can re-scan the repo and
 launch a Gradle task in-browser as a tracked background **job** whose output
-streams to the Processes page (tasks are validated against a strict flag
-allowlist; the server binds to localhost and never uses a shell).
+streams to the Processes page (with per-log search, "open log on disk", and
+cancel; a system-performance header shows CPU/load/memory). Tasks are validated
+against a strict flag allowlist; the server binds to localhost and never uses a
+shell.
+
+## Output location
+
+gradlescope never writes into the analyzed repository. By default the dashboard,
+score history, and job logs are written under a per-repo workspace at
+`~/.gradlescope/repos/<repo>-<hash>/` (override the base with the
+`GRADLESCOPE_HOME` env var, or pick an explicit `--out` directory).
 
 ## Clean Architecture metrics
 

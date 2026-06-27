@@ -18,7 +18,7 @@ def _make_repo(root):
 
 
 def _emit_runner(lines, rc=0):
-    def runner(argv, cwd, emit):
+    def runner(argv, cwd, emit, on_start=None):
         for ln in lines:
             emit(ln)
         return rc
@@ -136,7 +136,7 @@ class TestApi:
     def test_run_default_task_when_missing(self, tmp_path):
         seen = {}
 
-        def runner(argv, cwd, emit):
+        def runner(argv, cwd, emit, on_start=None):
             seen["argv"] = argv
             return 0
 
@@ -144,6 +144,49 @@ class TestApi:
         _, _, body = srv.handle("POST", "/api/run", b"{}")
         srv.jobs.wait(json.loads(body)["job_id"])
         assert "help" in seen["argv"]
+
+    def test_system_endpoint(self, tmp_path):
+        status, _, body = _server(tmp_path).handle("GET", "/api/system", b"")
+        data = json.loads(body)
+        assert status == 200 and "cpu_count" in data
+
+    def test_cancel_running_job(self, tmp_path):
+        import threading
+
+        started, released = threading.Event(), threading.Event()
+
+        class FakeProc:
+            def terminate(self):
+                released.set()
+
+        def runner(argv, cwd, emit, on_start=None):
+            on_start(FakeProc())
+            started.set()
+            released.wait(2)
+            emit("terminated")
+            return -15
+
+        srv = _server(tmp_path, job_runner=runner)
+        _, _, body = srv.handle("POST", "/api/run", json.dumps({"task": "build"}).encode())
+        job_id = json.loads(body)["job_id"]
+        started.wait(2)
+        status, _, r = srv.handle("POST", f"/api/jobs/{job_id}/cancel", b"")
+        assert status == 200 and json.loads(r)["ok"] is True
+        srv.jobs.wait(job_id)
+        d = json.loads(srv.handle("GET", f"/api/jobs/{job_id}", b"")[2])
+        assert d["status"] == "cancelled"
+
+    def test_open_log_endpoint(self, tmp_path, monkeypatch):
+        import gradlescope.server.app as app_mod
+
+        monkeypatch.setattr(app_mod, "reveal_path", lambda p: True)
+        out = str(tmp_path / "out")
+        srv = _server(tmp_path, job_runner=_emit_runner(["x"]), output_dir=out)
+        _, _, body = srv.handle("POST", "/api/run", json.dumps({"task": "build"}).encode())
+        job_id = json.loads(body)["job_id"]
+        srv.jobs.wait(job_id)
+        status, _, r = srv.handle("POST", f"/api/jobs/{job_id}/open", b"")
+        assert status == 200 and json.loads(r)["path"].endswith(".log")
 
     def test_processes_endpoint(self, tmp_path):
         fake_ps = lambda: "12345 01:23 0.5 1.2 java -Dorg.gradle.daemon org.gradle.launcher.daemon.bootstrap.GradleDaemon 8.6\n"
@@ -168,7 +211,7 @@ class TestJobManager:
     def test_start_builds_argv(self, tmp_path):
         seen = {}
 
-        def runner(argv, cwd, emit):
+        def runner(argv, cwd, emit, on_start=None):
             seen["argv"] = argv
             return 0
 

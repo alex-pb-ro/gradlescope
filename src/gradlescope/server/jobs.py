@@ -16,11 +16,12 @@ from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
 # A streaming runner: run argv in cwd, call emit(line) per output line, return
-# the process exit code.
-StreamRunner = Callable[[List[str], str, Callable[[str], None]], int]
+# the process exit code. ``on_start`` (optional) receives the live process
+# handle so the manager can cancel it.
+StreamRunner = Callable[..., int]
 
 
-def default_stream_runner(argv: List[str], cwd: str, emit: Callable[[str], None]) -> int:
+def default_stream_runner(argv, cwd, emit, on_start=None) -> int:
     try:
         proc = subprocess.Popen(
             argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
@@ -28,6 +29,8 @@ def default_stream_runner(argv: List[str], cwd: str, emit: Callable[[str], None]
     except FileNotFoundError:
         emit("[gradlescope] Gradle executable not found")
         return -1
+    if on_start is not None:
+        on_start(proc)
     assert proc.stdout is not None
     for line in proc.stdout:
         emit(line.rstrip("\n"))
@@ -39,12 +42,14 @@ def default_stream_runner(argv: List[str], cwd: str, emit: Callable[[str], None]
 class Job:
     id: str
     task: str
-    status: str = "running"  # running | ok | failed
+    status: str = "running"  # running | ok | failed | cancelled
     started_at: str = ""
     ended_at: Optional[str] = None
     returncode: Optional[int] = None
     lines: List[str] = field(default_factory=list)
     thread: Optional[threading.Thread] = None
+    proc: object = None  # live subprocess.Popen, if any
+    cancelled: bool = False
 
     def meta(self) -> Dict:
         return {
@@ -114,6 +119,28 @@ class JobManager:
         if job and job.thread:
             job.thread.join(timeout)
 
+    def cancel(self, job_id: str) -> bool:
+        """Terminate a running job's process. Returns True if a kill was issued."""
+        with self._lock:
+            job = self.jobs.get(job_id)
+            if job is None or job.status != "running":
+                return False
+            job.cancelled = True
+            proc = job.proc
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:  # pragma: no cover - process already gone
+                return False
+            return True
+        return False
+
+    def log_path(self, job_id: str) -> Optional[str]:
+        d = self._jobs_dir()
+        if not d or job_id not in self.jobs:
+            return None
+        return os.path.join(d, f"{job_id}.log")
+
     # -- internals -------------------------------------------------------- #
     def _run(self, job: Job, argv: List[str]) -> None:
         def emit(line: str) -> None:
@@ -122,15 +149,20 @@ class JobManager:
                 if len(job.lines) % 25 == 0:
                     self._persist(job)
 
+        def on_start(proc) -> None:
+            with self._lock:
+                job.proc = proc
+
         try:
-            rc = self.run_fn(argv, self.root, emit)
+            rc = self.run_fn(argv, self.root, emit, on_start)
         except Exception as exc:  # pragma: no cover - defensive
             emit(f"[gradlescope] runner error: {exc}")
             rc = -1
         with self._lock:
             job.returncode = rc
-            job.status = "ok" if rc == 0 else "failed"
+            job.status = "cancelled" if job.cancelled else ("ok" if rc == 0 else "failed")
             job.ended_at = self.now_fn()
+            job.proc = None
             self._persist(job)
 
     def _jobs_dir(self) -> Optional[str]:
@@ -147,6 +179,9 @@ class JobManager:
             payload = {**job.meta(), "lines": job.lines}
             with open(os.path.join(d, f"{job.id}.json"), "w", encoding="utf-8") as fh:
                 json.dump(payload, fh)
+            # Also write a plain-text log so it can be opened with native tools.
+            with open(os.path.join(d, f"{job.id}.log"), "w", encoding="utf-8") as fh:
+                fh.write("\n".join(job.lines) + "\n")
         except OSError:  # pragma: no cover - defensive
             pass
 
@@ -191,6 +226,70 @@ def _default_ps() -> str:  # pragma: no cover - environment dependent
         ["ps", "-eo", ",".join(_PS_FIELDS)], capture_output=True, text=True, timeout=10
     )
     return proc.stdout
+
+
+def reveal_path(path: str) -> bool:  # pragma: no cover - platform dependent
+    """Open/reveal a file with the OS file manager (macOS `open -R`, else xdg-open)."""
+    import sys
+
+    try:
+        if sys.platform == "darwin":
+            subprocess.run(["open", "-R", path], timeout=10)
+        elif sys.platform.startswith("linux"):
+            subprocess.run(["xdg-open", os.path.dirname(path) or "."], timeout=10)
+        else:
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _read_mem_pct() -> Optional[float]:
+    """Best-effort used-memory percentage (Linux /proc, macOS vm_stat)."""
+    import sys
+
+    try:
+        if sys.platform.startswith("linux") and os.path.exists("/proc/meminfo"):
+            info = {}
+            with open("/proc/meminfo") as fh:
+                for line in fh:
+                    k, _, v = line.partition(":")
+                    info[k.strip()] = v.strip()
+            total = int(info["MemTotal"].split()[0])
+            avail = int(info.get("MemAvailable", info.get("MemFree", "0")).split()[0])
+            return round((1 - avail / total) * 100, 1) if total else None
+        if sys.platform == "darwin":
+            out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
+            pages = {}
+            for line in out.splitlines():
+                if ":" in line:
+                    k, _, v = line.partition(":")
+                    pages[k.strip()] = v.strip().rstrip(".")
+            free = int(pages.get("Pages free", "0"))
+            spec = int(pages.get("Pages speculative", "0"))
+            active = int(pages.get("Pages active", "0"))
+            inactive = int(pages.get("Pages inactive", "0"))
+            wired = int(pages.get("Pages wired down", "0"))
+            used = active + wired
+            total = used + inactive + free + spec
+            return round(used / total * 100, 1) if total else None
+    except Exception:
+        return None
+    return None
+
+
+def system_stats() -> Dict:
+    """Best-effort system performance snapshot (CPU count, load, memory)."""
+    stats: Dict = {"cpu_count": os.cpu_count()}
+    try:
+        load = os.getloadavg()
+        stats["load_avg"] = [round(x, 2) for x in load]
+        if stats["cpu_count"]:
+            stats["load_pct"] = round(load[0] / stats["cpu_count"] * 100, 1)
+    except (OSError, AttributeError):  # pragma: no cover - unavailable on some OSes
+        stats["load_avg"] = None
+    stats["mem_pct"] = _read_mem_pct()
+    return stats
 
 
 def gradle_processes(ps_fn: Optional[Callable[[], str]] = None) -> List[Dict]:

@@ -125,6 +125,58 @@ class TestSite:
         pages = site.build_pages(_result())
         assert "gsCopy(" in pages["ai.html"]
 
+    def test_prompts_js_asset_and_external_includes(self):
+        pages = site.build_pages(_result())
+        assert "prompts.js" in pages
+        assert pages["prompts.js"].startswith("window.GS_PROMPTS")
+        # overview and graph reference the shared prompts asset + prompt buttons
+        for name in ("index.html", "graph.html", "findings.html"):
+            assert 'src="prompts.js"' in pages[name]
+            assert "gsCopyPrompt(" in pages[name]
+
+    def test_status_bar_on_every_page(self):
+        pages = site.build_pages(_result())
+        for name in ("index.html", "graph.html", "plugins.html", "processes.html"):
+            assert 'id="statusbar"' in pages[name]
+            assert "sb-proc" in pages[name]
+
+    def test_graph_overlay_modes_and_highlight(self):
+        g = site.build_pages(_result())["graph.html"]
+        assert "gv-overlay" in g
+        assert "gv-mode" in g and "Abstraction layers" in g
+        assert "gv-highlight" in g and "cycles" in g
+        assert "Ctrl" in g  # zoom hint
+
+    def test_modules_page_version_columns(self):
+        m = site.build_pages(_result())["modules.html"]
+        assert ">JVM<" in m and ">Compat<" in m and ">Languages<" in m
+
+    def test_plugins_drilldown(self):
+        p = site.build_pages(_result())["plugins.html"]
+        assert "plugin-modules" in p and "modlist" in p
+
+    def test_architecture_glossary_and_charts(self):
+        a = site.build_pages(_result())["architecture.html"]
+        assert "glossary" in a
+        assert "Instability" in a and "Distance from the main sequence" in a
+        assert a.count("hbar-chart") >= 3  # per-metric charts
+
+    def test_processes_system_header(self):
+        p = site.build_pages(_result())["processes.html"]
+        assert "pr-sys" in p and "/api/system" in p
+        assert "Open log" in p
+
+    def test_languages_widget_shows_versions(self):
+        from gradlescope.model import Module, Plugin, Repo
+
+        a = Module(path=":a", directory="/r/a", plugins=[Plugin(id="java")],
+                   languages={"java"}, jvm_toolchain="21")
+        b = Module(path=":b", directory="/r/b", plugins=[Plugin(id="java")],
+                   languages={"java"}, jvm_toolchain="17")
+        result = build_result(Repo(root="/r", modules=[a, b], gradle_version="8.6"), generated_at="t")
+        idx = site.build_pages(result)["index.html"]
+        assert "java 21" in idx and "java 17" in idx
+
     def test_findings_script_neutralizes_breakout_payload(self):
         from gradlescope.model import Finding, Severity
 
@@ -138,10 +190,13 @@ class TestSite:
                 message="evil </script><script>alert(1)</script>",
             )
         )
-        f = site.build_pages(result)["findings.html"]
-        # The payload's raw breakout sequence must not survive in the embedded JSON.
-        assert "</script><script>alert(1)" not in f
-        assert "\\u003c/script>" in f  # escaped instead
+        pages = site.build_pages(result)
+        # Findings page loads prompts via an external asset (no inline breakout risk)…
+        assert "prompts.js" in pages["findings.html"]
+        # …and the prompts asset itself escapes '<' as defense in depth.
+        js = pages["prompts.js"]
+        assert "</script><script>alert(1)" not in js
+        assert "\\u003c/script>" in js
 
     def test_trend_with_history(self):
         history = [{"generated_at": "2025-12-01T00:00", "overall": 40.0}]

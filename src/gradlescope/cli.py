@@ -15,6 +15,7 @@ from gradlescope.report import ai, json_report, markdown_report
 from gradlescope.result import build_result
 from gradlescope.scan import scan_repo
 from gradlescope.server.app import serve as _serve
+from gradlescope.workspace import default_site_dir
 
 
 def _now() -> str:
@@ -89,21 +90,22 @@ def cmd_report(args, out=None) -> int:
 def cmd_dashboard(args, out=None) -> int:
     out = out or sys.stdout
     _, result = _load_result(args)
+    out_dir = args.out or default_site_dir(args.root)
     history = []
-    history_path = os.path.join(args.out, "history.json")
+    history_path = os.path.join(out_dir, "history.json")
     if os.path.isfile(history_path):
         try:
             with open(history_path, "r", encoding="utf-8") as fh:
                 history = json.load(fh)
         except (OSError, ValueError):  # pragma: no cover - defensive
             history = []
-    render_site(result, args.out, history=history, live=args.live)
+    render_site(result, out_dir, history=history, live=args.live)
     # Record this run in history for trend continuity.
     history.append({"generated_at": result.generated_at, "overall": result.scorecard.overall,
                     "grade": result.scorecard.grade})
     with open(history_path, "w", encoding="utf-8") as fh:
         json.dump(history, fh)
-    index = os.path.join(args.out, "index.html")
+    index = os.path.join(out_dir, "index.html")
     print(f"Dashboard written to {index}", file=out)
     if getattr(args, "open", False):  # pragma: no cover - opens a browser
         import webbrowser
@@ -114,9 +116,11 @@ def cmd_dashboard(args, out=None) -> int:
 
 def cmd_serve(args, out=None) -> int:
     out = out or sys.stdout
+    out_dir = args.out or default_site_dir(args.root)
     print(f"Starting gradlescope server for {os.path.abspath(args.root)}", file=out)
+    print(f"Workspace: {out_dir}", file=out)
     _serve(root=args.root, host=args.host, port=args.port, config=_load_config(args.config),
-           output_dir=args.out)
+           output_dir=out_dir)
     return 0
 
 
@@ -188,7 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_dash = sub.add_parser("dashboard", help="Generate the static HTML dashboard")
     add_common(p_dash)
-    p_dash.add_argument("--out", default=".gradlescope/site", help="Output directory")
+    p_dash.add_argument("--out", default=None, help="Output directory (default: ~/.gradlescope/repos/<repo>/site)")
     p_dash.add_argument("--live", action="store_true", help="Inject live controls (for use behind the server)")
     p_dash.add_argument("--open", action="store_true", help="Open the dashboard in a browser")
     p_dash.set_defaults(func=cmd_dashboard)
@@ -197,7 +201,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(p_serve)
     p_serve.add_argument("--host", default="127.0.0.1")
     p_serve.add_argument("--port", type=int, default=8765)
-    p_serve.add_argument("--out", default=".gradlescope/site", help="Directory for persisted artifacts")
+    p_serve.add_argument("--out", default=None, help="Workspace dir (default: ~/.gradlescope/repos/<repo>)")
     p_serve.set_defaults(func=cmd_serve)
 
     p_aff = sub.add_parser("affected", help="Print modules affected by changed files")
