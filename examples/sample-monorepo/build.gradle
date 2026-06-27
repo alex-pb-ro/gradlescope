@@ -1,0 +1,7 @@
+plugins { id 'base' }
+allprojects {
+    repositories { mavenLocal(); mavenCentral() }
+}
+subprojects {
+    apply plugin: 'java'
+}

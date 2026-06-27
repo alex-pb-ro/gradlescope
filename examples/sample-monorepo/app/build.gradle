@@ -1,0 +1,12 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '2.7.5'
+}
+apply from: "$rootDir/gradle/legacy.gradle"
+java { sourceCompatibility = JavaVersion.VERSION_17 }
+dependencies {
+    implementation project(':libs:core')
+    implementation project(':libs:util')
+    implementation 'com.google.guava:guava:31.+'
+    implementation 'org.apache.commons:commons-lang3:3.12.0-SNAPSHOT'
+}

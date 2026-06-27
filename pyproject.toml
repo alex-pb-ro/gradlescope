@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gradlescope"
+version = "0.1.0"
+description = "Analyze, score, and improve Gradle builds in large multi-module monorepos — build-tool-agnostic, AI-friendly, dashboard-driven."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+keywords = [
+    "gradle",
+    "monorepo",
+    "build-cache",
+    "configuration-cache",
+    "build-performance",
+    "dependency-graph",
+    "bazel",
+]
+authors = [{ name = "gradlescope contributors" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Build Tools",
+]
+# Core is intentionally dependency-free (pure standard library) so the tool is
+# trivial to vendor into any environment and safe to run in locked-down CI.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=5"]
+
+[project.scripts]
+gradlescope = "gradlescope.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/gradlescope/gradlescope"
+Issues = "https://github.com/gradlescope/gradlescope/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+gradlescope = ["runbooks/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+branch = true
+source = ["gradlescope"]
+omit = ["*/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]

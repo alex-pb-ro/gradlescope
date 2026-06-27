@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# gradlescope output
+.gradlescope/
+*.gradlescope.json
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
