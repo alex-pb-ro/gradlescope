@@ -14,17 +14,17 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import threading
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 
 from gradlescope.dashboard.site import build_pages
 from gradlescope.result import build_result
 from gradlescope.scan import scan_repo
+from gradlescope.server.jobs import JobManager, StreamRunner, gradle_processes
 
 _TASK_RE = re.compile(r"^[A-Za-z0-9 :._\-]+$")
-Runner = Callable[[List[str], str], Dict]
 
 # Only these CLI flags may be passed from the browser. Notably this excludes
 # dangerous options such as --init-script / -I / --include-build / --build-file
@@ -57,44 +57,28 @@ def is_valid_task(task: str) -> bool:
     return True
 
 
-def default_runner(argv: List[str], cwd: str, timeout: int = 1800) -> Dict:
-    try:
-        proc = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=timeout)
-    except FileNotFoundError:
-        return {"ok": False, "returncode": -1, "output": "", "message": "Gradle executable not found"}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "returncode": -1, "output": "", "message": "Gradle run timed out"}
-    output = (proc.stdout or "") + (proc.stderr or "")
-    tail = "\n".join(output.splitlines()[-60:])
-    ok = proc.returncode == 0
-    return {
-        "ok": ok,
-        "returncode": proc.returncode,
-        "output": tail,
-        "message": "BUILD OK" if ok else f"BUILD FAILED (rc={proc.returncode})",
-    }
-
-
 class DashboardServer:
     def __init__(
         self,
         root: str,
         config: Optional[Dict] = None,
         output_dir: Optional[str] = None,
-        runner: Optional[Runner] = None,
+        job_runner: Optional[StreamRunner] = None,
+        ps_fn: Optional[Callable[[], str]] = None,
         now_fn: Optional[Callable[[], str]] = None,
     ):
         self.root = os.path.abspath(root)
         self.config = config or {}
         self.output_dir = output_dir
-        self.runner: Runner = runner or default_runner
         self.now_fn = now_fn or (lambda: datetime.now().isoformat(timespec="seconds"))
+        self.ps_fn = ps_fn
         # Guards the shared mutable state (result/pages/history) which is read
         # and written from multiple request threads under ThreadingHTTPServer.
         self._lock = threading.RLock()
         self.history: List[Dict] = []
         self.result = None
         self.pages: Dict[str, str] = {}
+        self.jobs = JobManager(self.root, output_dir=output_dir, run_fn=job_runner, now_fn=self.now_fn)
         self.rescan()
 
     # -- actions ---------------------------------------------------------- #
@@ -130,19 +114,14 @@ class DashboardServer:
         except OSError:  # pragma: no cover - defensive
             pass
 
-    def _gradle_executable(self) -> str:
-        wrapper = os.path.join(self.root, "gradlew")
-        if os.path.isfile(wrapper) and os.access(wrapper, os.X_OK):
-            return wrapper
-        return "gradle"
-
-    def run_gradle(self, task: str) -> Dict:
-        argv = [self._gradle_executable(), *task.split()]
-        return self.runner(argv, self.root)
+    def run_gradle(self, task: str):
+        """Start a background Gradle job; returns the Job."""
+        return self.jobs.start(task)
 
     def status_summary(self) -> Dict:
         with self._lock:
             s = self.result.scorecard
+            running = sum(1 for j in self.jobs.list() if j["status"] == "running")
             return {
                 "overall": s.overall,
                 "grade": s.grade,
@@ -150,18 +129,21 @@ class DashboardServer:
                 "severity_counts": s.severity_counts,
                 "generated_at": self.result.generated_at,
                 "run_count": len(self.history),
+                "running_jobs": running,
             }
 
     # -- routing ---------------------------------------------------------- #
     def handle(self, method: str, path: str, body: bytes) -> Tuple[int, str, str]:
-        path = path.split("?", 1)[0]
+        parsed = urlparse(path)
+        clean = parsed.path
+        query = parse_qs(parsed.query)
         if method == "GET":
-            return self._handle_get(path)
+            return self._handle_get(clean, query)
         if method == "POST":
-            return self._handle_post(path, body)
+            return self._handle_post(clean, body)
         return self._not_found()
 
-    def _handle_get(self, path: str) -> Tuple[int, str, str]:
+    def _handle_get(self, path: str, query: Dict) -> Tuple[int, str, str]:
         name = "index.html" if path in ("/", "") else path.lstrip("/")
         with self._lock:
             if name in self.pages:
@@ -170,6 +152,18 @@ class DashboardServer:
                 return self._json(self.result.to_dict())
         if name == "api/status":
             return self._json(self.status_summary())
+        if name == "api/jobs":
+            return self._json({"jobs": self.jobs.list()})
+        if name.startswith("api/jobs/"):
+            job_id = name[len("api/jobs/"):]
+            try:
+                offset = int(query.get("offset", ["0"])[0])
+            except (TypeError, ValueError):
+                offset = 0
+            detail = self.jobs.get(job_id, offset=offset)
+            return self._json(detail) if detail else self._not_found()
+        if name == "api/processes":
+            return self._json({"processes": gradle_processes(self.ps_fn), "jobs": self.jobs.list()})
         return self._not_found()
 
     def _handle_post(self, path: str, body: bytes) -> Tuple[int, str, str]:
@@ -179,7 +173,8 @@ class DashboardServer:
             task = self._task_from_body(body)
             if not is_valid_task(task):
                 return self._json({"ok": False, "message": "invalid task"}, status=400)
-            return self._json(self.run_gradle(task))
+            job = self.run_gradle(task)
+            return self._json({"ok": True, "job_id": job.id, "message": f"Started job {job.id}: gradle {task}"})
         return self._not_found()
 
     @staticmethod

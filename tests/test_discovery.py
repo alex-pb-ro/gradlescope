@@ -124,6 +124,70 @@ def test_fallback_discovery_without_settings(tmp_path):
     assert repo.module_by_path(":svc") is not None
 
 
+def test_union_discovers_modules_missing_from_settings(tmp_path):
+    # Settings only lists :a, but :b and :c exist on disk (simulating dynamic
+    # / globbed includes that we cannot parse statically). Union must find all.
+    root = str(tmp_path)
+    _write(os.path.join(root, "settings.gradle"), "include ':a'\n")
+    for name in ("a", "b", "c"):
+        _write(os.path.join(root, name, "build.gradle"), "plugins { id 'java' }\n")
+    repo = scan_repo(root)
+    assert {m.path for m in repo.modules} == {":a", ":b", ":c"}
+
+
+def test_buildsrc_and_build_logic_excluded(tmp_path):
+    root = str(tmp_path)
+    _write(os.path.join(root, "settings.gradle"), "include ':a'\n")
+    _write(os.path.join(root, "a", "build.gradle"), "plugins { id 'java' }\n")
+    _write(os.path.join(root, "buildSrc", "build.gradle.kts"), "plugins { `kotlin-dsl` }\n")
+    _write(os.path.join(root, "build-logic", "build.gradle.kts"), "plugins { `kotlin-dsl` }\n")
+    repo = scan_repo(root)
+    assert {m.path for m in repo.modules} == {":a"}
+
+
+def test_languages_detected_outside_src_and_not_from_child(tmp_path):
+    root = str(tmp_path)
+    _write(os.path.join(root, "settings.gradle"), "include ':svc'\ninclude ':svc:child'\n")
+    # parent module: java in conventional src + a groovy file at module root
+    _write(os.path.join(root, "svc", "build.gradle"), "plugins { id 'java' }\n")
+    _write(os.path.join(root, "svc", "src", "main", "java", "S.java"), "class S{}")
+    _write(os.path.join(root, "svc", "Helper.groovy"), "class H{}")
+    # child module has python which must NOT leak into the parent
+    _write(os.path.join(root, "svc", "child", "build.gradle"), "plugins { id 'base' }\n")
+    _write(os.path.join(root, "svc", "child", "run.py"), "print(1)")
+    repo = scan_repo(root)
+    assert repo.module_by_path(":svc").languages == {"java", "groovy"}
+    assert repo.module_by_path(":svc:child").languages == {"python"}
+
+
+def test_convention_plugin_ids_scoped_to_gradleplugin_block(tmp_path):
+    from gradlescope.scan.discovery import detect_convention_plugin_ids
+
+    root = str(tmp_path)
+    _write(
+        os.path.join(root, "build-logic", "build.gradle.kts"),
+        'gradlePlugin {\n  plugins {\n    register("conv") { id = "myorg.real-convention" }\n  }\n}\n'
+        'tasks.register("x") { val id = "not-a-plugin" }\n',
+    )
+    ids = detect_convention_plugin_ids(root)
+    assert "myorg.real-convention" in ids
+    assert "not-a-plugin" not in ids  # outside gradlePlugin block -> ignored
+
+
+def test_type_counting_for_abstractness(tmp_path):
+    root = str(tmp_path)
+    _write(os.path.join(root, "settings.gradle"), "include ':a'\n")
+    _write(os.path.join(root, "a", "build.gradle"), "plugins { id 'java' }\n")
+    _write(
+        os.path.join(root, "a", "src", "main", "java", "Types.java"),
+        "interface Foo {}\nabstract class Bar {}\nclass Baz {}\nenum E { X }\n",
+    )
+    repo = scan_repo(root)
+    a = repo.module_by_path(":a")
+    assert a.type_count == 4  # interface, abstract class, class, enum
+    assert a.abstract_type_count == 2  # interface + abstract class
+
+
 def test_missing_build_file_module_still_created(tmp_path):
     root = str(tmp_path)
     _write(os.path.join(root, "settings.gradle"), "include ':ghost'\n")

@@ -108,6 +108,30 @@ def test_config_override(repo, tmp_path, capsys):
     assert "Overall:" in capsys.readouterr().out
 
 
+def test_prompt_for_rule(repo, capsys):
+    # :app declares a dynamic version -> dynamic-versions finding exists
+    code = cli.main(["prompt", "--root", repo, "--rule", "dynamic-versions", "--module", ":app"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "# Goal" in out and "dynamic-versions" in out and ":app" in out
+
+
+def test_prompt_list(repo, capsys):
+    code = cli.main(["prompt", "--root", repo, "--list"])
+    assert code == 0
+    assert "@" in capsys.readouterr().out  # finding keys printed
+
+
+def test_prompt_no_match(repo, capsys):
+    code = cli.main(["prompt", "--root", repo, "--rule", "no-such-rule"])
+    assert code == 1
+
+
+def test_prompt_requires_rule(repo, capsys):
+    code = cli.main(["prompt", "--root", repo])
+    assert code == 2
+
+
 def test_version(capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main(["--version"])

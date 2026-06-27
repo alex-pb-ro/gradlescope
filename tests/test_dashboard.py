@@ -78,7 +78,10 @@ class TestRunbookRendering:
 class TestSite:
     def test_build_pages_returns_all_pages(self):
         pages = site.build_pages(_result())
-        for name in ["index.html", "findings.html", "modules.html", "graph.html", "runbooks.html", "ai.html"]:
+        for name in [
+            "index.html", "findings.html", "modules.html", "graph.html",
+            "architecture.html", "plugins.html", "processes.html", "runbooks.html", "ai.html",
+        ]:
             assert name in pages
             assert pages[name].startswith("<!DOCTYPE html>")
 
@@ -87,17 +90,58 @@ class TestSite:
         idx = pages["index.html"]
         assert "gauge" in idx
         assert "donut-chart" in idx
-        assert "bar-chart" in idx
+        assert "hbar-chart" in idx
 
-    def test_findings_page_filterable_rows(self):
+    def test_findings_page_filterable_with_prompt_buttons(self):
         pages = site.build_pages(_result())
         f = pages["findings.html"]
         assert "data-row" in f
         assert "gsFilter()" in f
+        assert "gsCopyPrompt(" in f
+        assert "GS_PROMPTS" in f
+
+    def test_graph_page_has_canvas(self):
+        pages = site.build_pages(_result())
+        assert "gv-canvas" in pages["graph.html"]
+
+    def test_architecture_page_has_scatter(self):
+        pages = site.build_pages(_result())
+        assert "scatter-chart" in pages["architecture.html"]
+
+    def test_plugins_page_lists_plugins(self):
+        pages = site.build_pages(_result())
+        assert "pluginpill" in pages["plugins.html"]
+
+    def test_processes_page_polls_api(self):
+        pages = site.build_pages(_result())
+        assert "/api/processes" in pages["processes.html"]
+
+    def test_modules_page_has_metrics_columns(self):
+        pages = site.build_pages(_result())
+        m = pages["modules.html"]
+        assert ">Ca<" in m and ">Zone<" in m
 
     def test_ai_page_has_copy_buttons(self):
         pages = site.build_pages(_result())
         assert "gsCopy(" in pages["ai.html"]
+
+    def test_findings_script_neutralizes_breakout_payload(self):
+        from gradlescope.model import Finding, Severity
+
+        result = _result()
+        result.findings.append(
+            Finding(
+                rule_id="x",
+                title="t",
+                severity=Severity.LOW,
+                category="dependency-hygiene",
+                message="evil </script><script>alert(1)</script>",
+            )
+        )
+        f = site.build_pages(result)["findings.html"]
+        # The payload's raw breakout sequence must not survive in the embedded JSON.
+        assert "</script><script>alert(1)" not in f
+        assert "\\u003c/script>" in f  # escaped instead
 
     def test_trend_with_history(self):
         history = [{"generated_at": "2025-12-01T00:00", "overall": 40.0}]

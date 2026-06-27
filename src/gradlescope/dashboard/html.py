@@ -15,6 +15,9 @@ NAV: List[Tuple[str, str]] = [
     ("findings.html", "Findings"),
     ("modules.html", "Modules"),
     ("graph.html", "Graph"),
+    ("architecture.html", "Architecture"),
+    ("plugins.html", "Plugins"),
+    ("processes.html", "Processes"),
     ("runbooks.html", "Runbooks"),
     ("ai.html", "AI"),
 ]
@@ -61,6 +64,9 @@ tr:hover td{background:var(--panel2)}
 .chart{max-width:100%;height:auto}
 .chart .axis{stroke:var(--border)}
 .chart .bar-label,.chart text{fill:var(--muted);font-size:11px}
+.chart .hbar-label{fill:var(--text);font-size:12px}
+.chart .hbar-value{fill:var(--muted);font-size:11px}
+.chart .axis-label{fill:var(--muted);font-size:11px}
 .gauge-value{fill:var(--text)!important;font-size:38px;font-weight:700}
 .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:8px;font-size:13px}
 .legend span{display:inline-flex;align-items:center;gap:6px}
@@ -75,6 +81,20 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 footer{padding:24px;text-align:center;color:var(--muted);font-size:13px}
 #toast{position:fixed;bottom:20px;right:20px;background:var(--panel2);border:1px solid var(--border);padding:12px 16px;border-radius:10px;opacity:0;transition:.3s;pointer-events:none}
 #toast.show{opacity:1}
+.gv-wrap{border:1px solid var(--border);border-radius:14px;background:var(--panel);overflow:hidden}
+.gv-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px;border-bottom:1px solid var(--border)}
+.gv-controls label{font-size:13px;color:var(--muted);display:inline-flex;gap:6px;align-items:center}
+#gv-canvas{display:block;width:100%;background:radial-gradient(circle at 30% 20%,#141b2c,#0d1320)}
+.pluginpill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;color:#fff;display:inline-block}
+.zone-pill{font-size:11px;padding:2px 7px;border-radius:6px;display:inline-block;border:1px solid var(--border)}
+.btn-mini{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 9px;font-size:12px;cursor:pointer}
+.btn-mini:hover{filter:brightness(1.15)}
+.jobline{font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre-wrap}
+.job{border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;background:var(--panel)}
+.job.running{border-left:3px solid var(--accent)}
+.job.ok{border-left:3px solid var(--A)}
+.job.failed{border-left:3px solid var(--F)}
+.dot-status{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px}
 """
 
 BASE_JS = """
@@ -83,6 +103,9 @@ function gsFilter(){var q=(document.getElementById('flt')||{}).value||'';var sev
   document.querySelectorAll('tr[data-row]').forEach(function(r){var hay=r.getAttribute('data-hay')||'';var s=r.getAttribute('data-sev')||'';
     var ok=(!q||hay.indexOf(q)>=0)&&(!sev||s===sev);r.style.display=ok?'':'none';});}
 function gsCopy(id){var el=document.getElementById(id);if(!el)return;navigator.clipboard.writeText(el.innerText).then(function(){gsToast('Copied to clipboard');});}
+window.GS_PROMPTS = window.GS_PROMPTS || {};
+function gsCopyText(t){navigator.clipboard.writeText(t).then(function(){gsToast('Copied to clipboard');});}
+function gsCopyPrompt(k){var t=(window.GS_PROMPTS||{})[k]; if(t){gsCopyText(t);} else {gsToast('No prompt available');}}
 """
 
 LIVE_JS = """

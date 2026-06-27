@@ -11,6 +11,12 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from gradlescope import __version__
+from gradlescope.analysis.architecture import (
+    architecture_summary,
+    compute_module_metrics,
+    sdp_violations,
+)
+from gradlescope.analysis.plugins import plugin_overview
 from gradlescope.analysis.rule import RuleContext, run_rules
 from gradlescope.analysis.scoring import Scorecard, compute_scorecard
 from gradlescope.graph.depgraph import DependencyGraph
@@ -27,6 +33,11 @@ class AnalysisResult:
     generated_at: Optional[str] = None
     version: str = __version__
     config: Dict = field(default_factory=dict)
+    module_metrics: Dict = field(default_factory=dict)  # path -> ModuleMetrics
+    architecture: Dict = field(default_factory=dict)
+    sdp_violations: List = field(default_factory=list)
+    plugins: Dict = field(default_factory=dict)
+    graph_obj: object = None  # the DependencyGraph (not serialized)
 
     def to_dict(self) -> Dict:
         return {
@@ -38,6 +49,14 @@ class AnalysisResult:
             "graph": self.graph,
             "score": self.scorecard.to_dict(),
             "findings": [f.to_dict() for f in self.findings],
+            "plugins": self.plugins,
+            "architecture": {
+                "summary": self.architecture,
+                "modules": {p: m.to_dict() for p, m in self.module_metrics.items()},
+                "sdp_violations": [
+                    {"from": a, "to": b, "instability_delta": d} for a, b, d in self.sdp_violations
+                ],
+            },
         }
 
 
@@ -66,7 +85,9 @@ def build_result(
 ) -> AnalysisResult:
     config = config or {}
     graph = DependencyGraph.from_repo(repo)
-    ctx = RuleContext(repo=repo, graph=graph, config=config)
+    metrics = compute_module_metrics(repo, graph)
+    violations = sdp_violations(graph, metrics)
+    ctx = RuleContext(repo=repo, graph=graph, config=config, metrics=metrics)
     findings: List[Finding] = run_rules(ctx)
     scorecard = compute_scorecard(findings, repo=repo, config=config)
     return AnalysisResult(
@@ -78,4 +99,9 @@ def build_result(
         generated_at=generated_at,
         version=version,
         config=config,
+        module_metrics=metrics,
+        architecture=architecture_summary(metrics),
+        sdp_violations=violations,
+        plugins=plugin_overview(repo),
+        graph_obj=graph,
     )

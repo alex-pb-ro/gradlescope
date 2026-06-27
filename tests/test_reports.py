@@ -68,3 +68,19 @@ class TestAiReport:
         dyn = next((p for p in prompts if p["category"] == "dependency-hygiene"), None)
         assert dyn is not None
         assert ":app" in dyn["modules"]
+
+    def test_finding_prompt_has_sections(self):
+        result = _result()
+        finding = next(f for f in result.findings if f.module_path == ":app")
+        prompt = ai.finding_prompt(result, finding)
+        for section in ["# Goal", "# Context", "# Problem", "# Locations", "# References", "# Deliverable"]:
+            assert section in prompt
+        assert ":app" in prompt
+        assert finding.rule_id in prompt
+
+    def test_prompts_by_key_covers_all_findings(self):
+        result = _result()
+        mapping = ai.prompts_by_key(result)
+        assert set(mapping) == {f.key for f in result.findings}
+        for text in mapping.values():
+            assert "# Deliverable" in text

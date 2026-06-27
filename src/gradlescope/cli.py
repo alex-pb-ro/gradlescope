@@ -136,6 +136,31 @@ def cmd_affected(args, out=None) -> int:
     return 0
 
 
+def cmd_prompt(args, out=None) -> int:
+    out = out or sys.stdout
+    _, result = _load_result(args)
+    if args.list:
+        for f in result.findings:
+            print(f"{f.key}\t{f.severity.name}\t{f.title}", file=out)
+        return 0
+    if not args.rule:
+        print("error: --rule is required (or use --list)", file=out)
+        return 2
+    matches = [
+        f
+        for f in result.findings
+        if f.rule_id == args.rule and (args.module is None or f.module_path == args.module)
+    ]
+    if not matches:
+        print(f"No finding matched rule={args.rule} module={args.module}", file=out)
+        return 1
+    for i, finding in enumerate(matches):
+        if i:
+            print("\n" + "=" * 70 + "\n", file=out)
+        print(ai.finding_prompt(result, finding), file=out)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="gradlescope", description="Analyze and improve Gradle monorepo builds.")
     parser.add_argument("--version", action="version", version=f"gradlescope {__version__}")
@@ -181,6 +206,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_aff.add_argument("--from-stdin", action="store_true", help="Read changed file paths from stdin")
     p_aff.add_argument("--format", choices=["lines", "json"], default="lines")
     p_aff.set_defaults(func=cmd_affected)
+
+    p_prompt = sub.add_parser("prompt", help="Generate an AI prompt to fix a specific finding")
+    add_common(p_prompt)
+    p_prompt.add_argument("--rule", default=None, help="Rule id of the finding (see --list)")
+    p_prompt.add_argument("--module", default=None, help="Module path for a module-level finding")
+    p_prompt.add_argument("--list", action="store_true", help="List all finding keys instead")
+    p_prompt.set_defaults(func=cmd_prompt)
 
     return parser
 

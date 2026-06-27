@@ -6,7 +6,8 @@ from gradlescope.dashboard import runbooks
 from gradlescope.report import markdown_report
 from gradlescope.result import build_result
 from gradlescope.scan import parser
-from gradlescope.server.app import DashboardServer, default_runner
+from gradlescope.server.app import DashboardServer
+from gradlescope.server.jobs import default_stream_runner
 from gradlescope.model import Repo, VersionCatalog
 
 
@@ -87,15 +88,16 @@ class TestRunbookEdges:
         assert loaded["x"]["title"] == "x"
 
 
-class TestRunnerSuccessAndFailure:
+class TestStreamRunnerSuccessAndFailure:
     def test_success(self):
-        r = default_runner([sys.executable, "-c", "print('BUILD SUCCESSFUL')"], cwd=".")
-        assert r["ok"] is True and r["returncode"] == 0
-        assert "BUILD OK" in r["message"]
+        lines = []
+        rc = default_stream_runner([sys.executable, "-c", "print('BUILD SUCCESSFUL')"], ".", lines.append)
+        assert rc == 0 and any("BUILD SUCCESSFUL" in ln for ln in lines)
 
     def test_failure(self):
-        r = default_runner([sys.executable, "-c", "import sys; sys.exit(3)"], cwd=".")
-        assert r["ok"] is False and r["returncode"] == 3
+        lines = []
+        rc = default_stream_runner([sys.executable, "-c", "import sys; sys.exit(3)"], ".", lines.append)
+        assert rc == 3
 
 
 class TestServerPersistenceAndBadBody:
@@ -116,7 +118,7 @@ class TestServerPersistenceAndBadBody:
     def test_run_with_non_json_body_is_rejected(self, tmp_path):
         root = str(tmp_path / "repo")
         self._make_repo(root)
-        srv = DashboardServer(root=root, runner=lambda a, c: {"ok": True}, now_fn=lambda: "t")
+        srv = DashboardServer(root=root, job_runner=lambda a, c, e: 0, now_fn=lambda: "t")
         status, _, _ = srv.handle("POST", "/api/run", b"not-json")
         assert status == 400
 

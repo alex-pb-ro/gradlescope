@@ -126,6 +126,76 @@ def ai_prompts(result: AnalysisResult) -> List[Dict]:
     return prompts
 
 
+def finding_prompt(result: AnalysisResult, finding: Finding) -> str:
+    """A rich, deterministic, copy-ready prompt to fix one specific finding."""
+    s = result.scorecard
+    cat = s.categories.get(finding.category)
+    lines: List[str] = []
+    lines.append(f"# Goal")
+    lines.append(f"Resolve this Gradle build-health finding: {finding.title} (`{finding.rule_id}`).")
+    lines.append("")
+    lines.append("# Context")
+    lines.append(f"- Repository root: {result.root}")
+    lines.append(
+        f"- Modules: {result.summary.get('module_count')}; Gradle: {result.summary.get('gradle_version')}"
+    )
+    lines.append(
+        f"- Overall score: {s.overall} ({s.grade}); "
+        f"category '{finding.category}': {cat.score if cat else 'n/a'} ({cat.grade if cat else '-'})"
+    )
+    lines.append(f"- Severity: {finding.severity.name}; scoring weight: {finding.weight}")
+    lines.append("")
+    lines.append("# Problem")
+    lines.append(f"- {finding.message}")
+    if finding.evidence:
+        lines.append(f"- Evidence: {finding.evidence}")
+    if finding.recommendation:
+        lines.append(f"- Suggested direction: {finding.recommendation}")
+    lines.append("")
+    lines.append("# Locations")
+    if finding.module_path:
+        lines.append(f"- Module: {finding.module_path}")
+        mm = result.module_metrics.get(finding.module_path)
+        if mm is not None:
+            lines.append(
+                f"  - Clean-Architecture metrics: Ca={mm.ca}, Ce={mm.ce}, "
+                f"Instability={mm.instability}, Abstractness={mm.abstractness}, Distance={mm.distance}"
+            )
+        ms = s.modules.get(finding.module_path)
+        if ms is not None:
+            lines.append(f"  - Module score: {ms.score} ({ms.grade}); findings here: {ms.finding_count}")
+    else:
+        lines.append("- Scope: repo-wide (root build script / settings / gradle.properties).")
+    lines.append("")
+    if finding.category in ("dependency-graph", "modularity"):
+        g = result.graph
+        lines.append("# Graph stats")
+        lines.append(
+            f"- modules={g.get('module_count')}, edges={g.get('edge_count')}, "
+            f"max_depth={g.get('max_depth')}, cycles={g.get('cycle_count')}, "
+            f"max_fan_in={g.get('max_fan_in')}, max_fan_out={g.get('max_fan_out')}"
+        )
+        lines.append("")
+    lines.append("# References")
+    if finding.runbook:
+        lines.append(f"- gradlescope runbook: `{finding.runbook}` (see the dashboard Runbooks page).")
+    else:
+        lines.append("- (no specific runbook)")
+    lines.append("")
+    lines.append("# Deliverable")
+    lines.append(
+        "Produce: (1) a concrete, minimal patch (prefer Kotlin DSL and convention plugins) with "
+        "exact file edits; (2) how to validate the change (commands/expected output); (3) rollout "
+        "risk and, if multiple modules are affected, a safe sequencing."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def prompts_by_key(result: AnalysisResult) -> Dict[str, str]:
+    """Map each finding's key to its generated prompt (for the dashboard)."""
+    return {f.key: finding_prompt(result, f) for f in result.findings}
+
+
 def ai_markdown(result: AnalysisResult) -> str:
     """A single Markdown document bundling context and all prompts."""
     lines: List[str] = ["# gradlescope — AI handoff"]

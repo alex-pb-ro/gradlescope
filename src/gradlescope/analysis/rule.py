@@ -25,6 +25,7 @@ class RuleContext:
     repo: Repo
     graph: DependencyGraph
     config: Dict[str, Any] = field(default_factory=dict)
+    metrics: Dict[str, Any] = field(default_factory=dict)  # path -> ModuleMetrics
 
     def opt(self, key: str) -> Any:
         return self.config.get(key, DEFAULTS.get(key))

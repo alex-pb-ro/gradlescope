@@ -50,6 +50,10 @@ gradlescope serve --root /path/to/monorepo
 
 # Which modules are affected by a change?
 git diff --name-only origin/main... | gradlescope affected --root . --from-stdin
+
+# Generate a ready-to-paste AI prompt to fix one finding
+gradlescope prompt --root . --rule dependency-cycles
+gradlescope prompt --root . --list      # list finding keys
 ```
 
 Try it on the bundled example:
@@ -68,7 +72,7 @@ Findings are grouped into weighted scoring categories:
 | build-cache | build cache disabled, no remote cache (without Develocity) |
 | parallelism | parallel execution disabled |
 | dependency-hygiene | dynamic / SNAPSHOT versions, `mavenLocal()`, no version catalog |
-| dependency-graph | module cycles, excessive depth, high-fan-in hub modules |
+| dependency-graph | module cycles, excessive depth, high-fan-in hubs, SDP violations |
 | modularity | cross-project config (`allprojects`/`subprojects`), high fan-out |
 | toolchains | JVM modules without a Java toolchain |
 | portability | legacy `apply from:` script plugins |
@@ -121,15 +125,35 @@ score directly de-risks a future Bazel (or other) migration. See the
 
 - **Overview** — overall gauge + grade, severity donut, category & language
   charts, dependency-graph stats, score trend, top findings.
-- **Findings** — full, filterable findings table (by text and severity).
-- **Modules** — per-module scores (worst first) and a distribution chart.
-- **Graph** — graph metrics, cycles, and modularity findings.
+- **Findings** — full, filterable findings table; each row has a **Prompt**
+  button that copies a ready-to-paste AI prompt for that finding.
+- **Modules** — per-module scores plus Clean Architecture metrics
+  (Ca, Ce, Instability, Abstractness, Distance, zone).
+- **Graph** — an interactive Canvas graph (pan/zoom/hover, focus a module's
+  upstream/downstream, server-computed layered layout) that scales to thousands
+  of nodes with labels drawn on demand so they never overlap.
+- **Architecture** — the A/I main-sequence scatter (after Robert C. Martin),
+  zone breakdown, and Stable Dependencies Principle violations.
+- **Plugins** — every applied plugin classified as core / convention / internal
+  / external, with usage counts and version-conflict detection.
+- **Processes** — live Gradle jobs (streamed output, persists across refreshes)
+  and the running Gradle daemons/processes.
 - **Runbooks** — full remediation guides, rendered inline.
 - **AI** — context pack and copy-ready prompts.
 
 When served with `gradlescope serve`, the toolbar can re-scan the repo and
-trigger a Gradle task in-browser (tasks are validated against a strict
+launch a Gradle task in-browser as a tracked background **job** whose output
+streams to the Processes page (tasks are validated against a strict flag
 allowlist; the server binds to localhost and never uses a shell).
+
+## Clean Architecture metrics
+
+For every module gradlescope computes the component metrics from *Clean
+Architecture*: afferent/efferent coupling (Ca/Ce), **Instability** `I = Ce/(Ca+Ce)`,
+**Abstractness** `A` (abstract types / total types, from a source scan), and
+**Distance from the main sequence** `D = |A + I - 1|`. It flags Stable
+Dependencies Principle violations (depending on less-stable modules) and the
+"zone of pain" / "zone of uselessness".
 
 ## Architecture
 

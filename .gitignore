@@ -18,6 +18,10 @@ htmlcov/
 .gradlescope/
 *.gradlescope.json
 
+# Gradle build artifacts (e.g. from running the example repo)
+.gradle/
+**/build/
+
 # Editors / OS
 .idea/
 .vscode/

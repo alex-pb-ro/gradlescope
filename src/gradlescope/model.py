@@ -133,6 +133,8 @@ class Module:
     dependencies: List[Dependency] = field(default_factory=list)
     languages: Set[str] = field(default_factory=set)
     properties: Dict[str, str] = field(default_factory=dict)
+    type_count: int = 0
+    abstract_type_count: int = 0
 
     @property
     def name(self) -> str:
@@ -171,6 +173,7 @@ class Repo:
     gradle_properties: Dict[str, str] = field(default_factory=dict)
     version_catalogs: List[VersionCatalog] = field(default_factory=list)
     gradle_version: Optional[str] = None
+    convention_plugin_ids: Set[str] = field(default_factory=set)
 
     def module_by_path(self, path: str) -> Optional[Module]:
         for m in self.modules:
@@ -212,6 +215,11 @@ class Finding:
     @property
     def is_repo_level(self) -> bool:
         return self.module_path is None
+
+    @property
+    def key(self) -> str:
+        """Stable identifier for a finding (rule + scope)."""
+        return f"{self.rule_id}@{self.module_path or '-'}"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
